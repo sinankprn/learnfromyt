@@ -68,7 +68,10 @@ async function transcribeAudio(youtubeUrl) {
     },
   });
 
-  return JSON.parse(response.text);
+  const json = JSON.parse(response.text);
+  console.log(json);
+
+  return json;
 }
 
 export async function generateLearningMaterial(youtubeUrl) {
@@ -82,7 +85,7 @@ Do NOT invent information. Base everything strictly on the transcript.
 
 Transcript:
 """
-${transcription.text}
+${transcription}
 """
 `;
 
@@ -98,5 +101,6 @@ ${transcription.text}
     },
   });
 
+  console.log(response.text);
   return JSON.parse(response.text);
 }

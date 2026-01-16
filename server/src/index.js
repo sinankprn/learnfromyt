@@ -1,7 +1,6 @@
 import express from "express";
 import extractRouter from "./routes/extract.js";
 import cors from "cors";
-import "dotenv/config";
 
 const app = express();
 const port = process.env.PORT || 3000;
