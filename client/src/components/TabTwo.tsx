@@ -1,8 +1,24 @@
-export default function TabTwo() {
+import LearningMaterial from "./LearningMaterial";
+import type { TranscriptData } from "../types/learningMaterial";
+
+interface TabTwoProps {
+  url: string;
+  data: TranscriptData | null;
+  isLoading: boolean;
+  error: string | null;
+  onFetchTranscript: () => void;
+}
+
+export default function TabTwo({ url, data, isLoading, error, onFetchTranscript }: TabTwoProps) {
   return (
-    <div>
-      <h2>Tab Two</h2>
-      <p>This is tab two content</p>
+    <div className="animate-fadeIn">
+      <LearningMaterial
+        url={url}
+        data={data}
+        isLoading={isLoading}
+        error={error}
+        onFetchTranscript={onFetchTranscript}
+      />
     </div>
   );
 }

@@ -1,106 +1,103 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import "dotenv/config";
 
 if (!process.env.GOOGLE_API_KEY) {
-  throw new Error("GOOGLE_API_KEY is missing. dotenv not loaded?");
+  throw new Error("GOOGLE_API_KEY is missing. check .env in server directory");
 }
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 
-const transcriptionSchema = z.object({
-  text: z.string(),
-});
-
-const learningMaterialSchema = z.object({
-  summary: z.object({
-    thesis: z.string(),
-    keyPoints: z.array(z.string()).min(3).max(5),
-  }),
-
+// Define the schema using Zod
+const courseSchema = z.object({
+  title: z.string().describe("An engaging title for the course"),
+  description: z.string().describe("A brief summary of the course content"),
+  transcriptSummary: z.string().describe("A concise summary of the key points transcribed from the audio"),
+  learningObjectives: z.array(
+    z.object({
+      id: z.number().describe("Unique identifier starting from 1"),
+      objective: z.string().describe("What the learner will be able to do"),
+    })
+  ).min(2).max(5),
   sections: z.array(
     z.object({
-      title: z.string(),
-      keyIdea: z.string(),
-      explanation: z.string(),
-      examples: z.array(z.string()).default([]),
+      title: z.string().describe("Section title"),
+      objectiveId: z.number().describe("The id of the objective this section maps to"),
+      content: z.string().describe("Detailed educational material"),
+      keyPoints: z.array(z.string()).min(2).max(4).describe("Key takeaways"),
+      example: z.string().optional().describe("A practical example"),
     })
-  ),
-
-  keyConcepts: z.array(
+  ).min(2),
+  quiz: z.array(
     z.object({
-      term: z.string(),
-      definition: z.string(),
-    })
-  ),
-
-  reviewQuestions: z.array(
-    z.object({
-      type: z.enum(["recall", "conceptual", "applied"]),
       question: z.string(),
-      answer: z.string(),
+      options: z.array(z.string()).length(4),
+      correctIndex: z.number().min(0).max(3),
+      explanation: z.string(),
     })
-  ),
+  ).min(3).max(6),
 });
 
-async function transcribeAudio(youtubeUrl) {
-  const prompt =
-    "Transcribe this audio file word-for-word. Do not summarize the segments; provide the full verbatim text.";
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
-        {
-          fileData: {
-            fileUri: youtubeUrl,
-          },
-        },
-        {
-          text: prompt,
-        },
-      ],
-    },
-    config: {
-      temperature: 0.0,
-      responseMimeType: "application/json",
-      responseJsonSchema: zodToJsonSchema(transcriptionSchema),
-    },
-  });
-
-  const json = JSON.parse(response.text);
-  console.log(json);
-
-  return json;
-}
-
 export async function generateLearningMaterial(youtubeUrl) {
-  const transcription = await transcribeAudio(youtubeUrl);
+  console.log("Generating course using audio understanding for:", youtubeUrl);
 
-  const learningPrompt = `
-You are an expert educator.
+  const prompt = `
+    1. Transcribe the audio from this video carefully.
+    2. Based on that transcription, generate a high-quality, structured learning course.
+    3. Include a 'transcriptSummary' that captures the core message of the audio.
+    4. Ensure all learning objectives, sections, and quiz questions are strictly based on the transcribed content.
+  `;
 
-Using the following verbatim transcript, generate structured learning material.
-Do NOT invent information. Base everything strictly on the transcript.
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              fileData: {
+                fileUri: youtubeUrl,
+                mimeType: "video/mp4"
+              }
+            },
+            {
+              text: prompt
+            }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseJsonSchema: zodToJsonSchema(courseSchema),
+      },
+    });
 
-Transcript:
-"""
-${transcription}
-"""
-`;
+    const text = typeof response.text === 'function' ? response.text() : response.text;
+    console.log("Raw Gemini Response text length:", text?.length || 0);
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [{ text: learningPrompt }],
-    },
-    config: {
-      temperature: 0.2,
-      responseMimeType: "application/json",
-      responseJsonSchema: zodToJsonSchema(learningMaterialSchema),
-    },
-  });
+    // AI sometimes wraps JSON in markdown code blocks
+    const cleanJson = (str) => {
+      const match = str.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      return match ? match[1] : str;
+    };
 
-  console.log(response.text);
-  return JSON.parse(response.text);
+    const sanitizedText = cleanJson(text);
+    let result;
+    try {
+      result = JSON.parse(sanitizedText);
+    } catch (parseError) {
+      console.error("JSON PARSE ERROR on text snippet:", sanitizedText.substring(0, 100) + "...");
+      throw new Error(`Failed to parse Gemini response as JSON: ${parseError.message}`);
+    }
+
+    console.log("Successfully parsed course data.");
+    return result;
+  } catch (error) {
+    console.error("CRITICAL Gemini Generation Error:");
+    console.error(" - Message:", error.message);
+    if (error.stack) console.error(" - Stack:", error.stack);
+    throw error;
+  }
 }
